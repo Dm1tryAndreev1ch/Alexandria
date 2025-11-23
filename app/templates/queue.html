@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h3 class="mb-0">Очередь ответов</h3>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('queue.add') }}" id="queueForm">
+                    {{ form.hidden_tag() }}
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            {{ form.subject.label(class="form-label") }}
+                            {{ form.subject(class="form-select", id="subjectSelect", onchange="toggleHistoryDate()") }}
+                        </div>
+                        <div class="col-md-6 mb-3" id="dateField" style="display: none;">
+                            <label for="event_date" class="form-label">Дата занятия (только для истории)</label>
+                            <select name="event_date" id="event_date" class="form-select">
+                                <option value="">Выберите дату</option>
+                                {% for history_date in history_dates %}
+                                <option value="{{ history_date.strftime('%Y-%m-%d') }}">
+                                    {{ history_date.strftime('%d.%m.%Y') }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-12">
+                            {{ form.submit(class="btn btn-primary") }}
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">ОАиП</h4>
+            </div>
+            <div class="card-body">
+                {% if oaip_queue %}
+                <div class="list-group">
+                    {% for entry in oaip_queue %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>{{ loop.index }}.</strong> {{ entry.user.get_full_name() }}
+                            <small class="text-muted d-block">
+                                {% if entry.event_date %}
+                                    Дата: {{ entry.event_date.strftime('%d.%m.%Y') }} | 
+                                {% endif %}
+                                Записался: {{ entry.timestamp.strftime('%d.%m.%Y %H:%M') }}
+                            </small>
+                        </div>
+                        {% if entry.user_id == current_user.id %}
+                        <div>
+                            <form method="POST" action="{{ url_for('queue.mark_answered', entry_id=entry.id) }}" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-success">Отметить как ответившего</button>
+                            </form>
+                            <form method="POST" action="{{ url_for('queue.remove', entry_id=entry.id) }}" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Удалить из очереди?')">Удалить</button>
+                            </form>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted">Очередь пуста</p>
+                {% endif %}
+                
+                {% if user_in_oaip %}
+                <div class="alert alert-info mt-3">
+                    <strong>Вы в очереди!</strong> Ваша позиция: {{ oaip_queue|length if oaip_queue else 0 }}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">История</h4>
+            </div>
+            <div class="card-body">
+                {% if history_queue %}
+                <div class="list-group">
+                    {% for entry in history_queue %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>{{ loop.index }}.</strong> {{ entry.user.get_full_name() }}
+                            <small class="text-muted d-block">
+                                {% if entry.event_date %}
+                                    Дата: {{ entry.event_date.strftime('%d.%m.%Y') }} | 
+                                {% endif %}
+                                Записался: {{ entry.timestamp.strftime('%d.%m.%Y %H:%M') }}
+                            </small>
+                        </div>
+                        {% if entry.user_id == current_user.id %}
+                        <div>
+                            <form method="POST" action="{{ url_for('queue.mark_answered', entry_id=entry.id) }}" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-success">Отметить как ответившего</button>
+                            </form>
+                            <form method="POST" action="{{ url_for('queue.remove', entry_id=entry.id) }}" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Удалить из очереди?')">Удалить</button>
+                            </form>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted">Очередь пуста</p>
+                {% endif %}
+                
+                {% if user_in_history %}
+                <div class="alert alert-info mt-3">
+                    <strong>Вы в очереди!</strong> Ваша позиция: {{ history_queue|length if history_queue else 0 }}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleHistoryDate() {
+    const subjectSelect = document.getElementById('subjectSelect');
+    const dateField = document.getElementById('dateField');
+    const eventDate = document.getElementById('event_date');
+    
+    if (subjectSelect.value === 'История') {
+        dateField.style.display = 'block';
+        eventDate.setAttribute('required', 'required');
+    } else {
+        dateField.style.display = 'none';
+        eventDate.removeAttribute('required');
+        eventDate.value = '';
+    }
+}
+
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    toggleHistoryDate();
+});
+</script>
+{% endblock %}
+

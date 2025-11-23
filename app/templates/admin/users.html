@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h3 class="mb-0">Управление пользователями</h3>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info mb-3">
+                    <strong>Информация:</strong> Здесь вы можете управлять всеми пользователями системы. 
+                    Будьте осторожны при удалении пользователей - это действие необратимо.
+                </div>
+                {% if users_data %}
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Имя пользователя</th>
+                                <th>ФИО</th>
+                                <th>Статус</th>
+                                <th>Роль</th>
+                                <th>Дата регистрации</th>
+                                <th>Статистика</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for data in users_data %}
+                            <tr>
+                                <td>{{ data.user.id }}</td>
+                                <td>
+                                    <strong>{{ data.user.username }}</strong>
+                                    {% if data.user.telegram_id %}
+                                    <br><small class="text-muted">Telegram: {{ data.user.telegram_id }}</small>
+                                    {% endif %}
+                                </td>
+                                <td>{{ data.user.get_full_name() }}</td>
+                                <td>
+                                    {% if data.user.is_active %}
+                                    <span class="badge bg-success">Активен</span>
+                                    {% else %}
+                                    <span class="badge bg-warning">Неактивен</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if data.user.is_admin %}
+                                    <span class="badge bg-danger">Администратор</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">Пользователь</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ data.user.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                                <td>
+                                    <small>
+                                        Очередь: {{ data.queue_count }}<br>
+                                        Задачи: {{ data.tasks_count }}<br>
+                                        Файлы: {{ data.files_count }}
+                                    </small>
+                                </td>
+                                <td>
+                                    <div class="btn-group-vertical" role="group">
+                                        {% if data.user.id != current_user.id %}
+                                        <form method="POST" action="{{ url_for('admin.toggle_active', user_id=data.user.id) }}" class="d-inline mb-1">
+                                            <button type="submit" class="btn btn-sm btn-{{ 'warning' if data.user.is_active else 'success' }}" 
+                                                    onclick="return confirm('{{ 'Деактивировать' if data.user.is_active else 'Активировать' }} пользователя?')">
+                                                {{ 'Деактивировать' if data.user.is_active else 'Активировать' }}
+                                            </button>
+                                        </form>
+                                        
+                                        <form method="POST" action="{{ url_for('admin.toggle_admin', user_id=data.user.id) }}" class="d-inline mb-1">
+                                            <button type="submit" class="btn btn-sm btn-{{ 'secondary' if data.user.is_admin else 'danger' }}" 
+                                                    onclick="return confirm('{{ 'Снять права администратора' if data.user.is_admin else 'Назначить администратором' }}?')">
+                                                {{ 'Снять права админа' if data.user.is_admin else 'Назначить админом' }}
+                                            </button>
+                                        </form>
+                                        
+                                        <form method="POST" action="{{ url_for('admin.reset_password', user_id=data.user.id) }}" class="d-inline mb-1">
+                                            <button type="submit" class="btn btn-sm btn-info" 
+                                                    onclick="return confirm('Сбросить пароль пользователя? Будет создан новый временный пароль.')">
+                                                Сбросить пароль
+                                            </button>
+                                        </form>
+                                        
+                                        <form method="POST" action="{{ url_for('admin.delete_user', user_id=data.user.id) }}" class="d-inline">
+                                            <button type="submit" class="btn btn-sm btn-danger" 
+                                                    onclick="return confirm('ВНИМАНИЕ! Это действие необратимо. Все данные пользователя будут удалены. Продолжить?')">
+                                                Удалить
+                                            </button>
+                                        </form>
+                                        {% else %}
+                                        <span class="text-muted small">Это ваш аккаунт</span>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted">Пользователи не найдены.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

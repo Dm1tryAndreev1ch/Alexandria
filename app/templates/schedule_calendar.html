@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h3 class="mb-0">Расписание - Календарь</h3>
+                <div>
+                    {% if current_user.is_admin %}
+                    <button id="refresh-calendar-btn" class="btn btn-warning me-2" onclick="refreshSchedule()">
+                        <span id="refresh-spinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+                        Обновить расписание
+                    </button>
+                    {% endif %}
+                    <a href="{{ url_for('main.schedule') }}" class="btn btn-outline-light me-2">Таблица</a>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="calendar-loading" class="text-center mt-3">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <p class="mt-2">Загрузка расписания...</p>
+                </div>
+                <div id="calendar-error" class="alert alert-danger mt-3" style="display: none;">
+                    <strong>Ошибка загрузки расписания.</strong> Проверьте консоль браузера для деталей.
+                </div>
+                <div id="calendar" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal для файлов -->
+<div class="modal fade" id="filesModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Файлы занятия</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="filesContent">
+                Загрузка...
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Ждем загрузки FullCalendar перед инициализацией
+function initCalendar() {
+    // Проверяем, что FullCalendar загружен
+    if (typeof FullCalendar === 'undefined') {
+        console.warn('FullCalendar library is not loaded! Retrying...');
+        // Пробуем еще раз через 200ms, максимум 10 попыток
+        if (!initCalendar.retryCount) initCalendar.retryCount = 0;
+        initCalendar.retryCount++;
+        if (initCalendar.retryCount < 10) {
+            setTimeout(initCalendar, 200);
+        } else {
+            console.error('FullCalendar failed to load after multiple attempts');
+            var errorEl = document.getElementById('calendar-error');
+            var loadingEl = document.getElementById('calendar-loading');
+            if (errorEl) {
+                errorEl.style.display = 'block';
+                errorEl.innerHTML = '<strong>Ошибка загрузки библиотеки календаря.</strong> Проверьте подключение к интернету и перезагрузите страницу.';
+            }
+            if (loadingEl) loadingEl.style.display = 'none';
+        }
+        return;
+    }
+    
+    // Сбрасываем счетчик при успешной загрузке
+    initCalendar.retryCount = 0;
+    
+    var calendarEl = document.getElementById('calendar');
+    var loadingEl = document.getElementById('calendar-loading');
+    var errorEl = document.getElementById('calendar-error');
+    
+    if (!calendarEl) {
+        console.error('Calendar element not found!');
+        if (errorEl) {
+            errorEl.style.display = 'block';
+            errorEl.innerHTML = '<strong>Ошибка:</strong> Элемент календаря не найден.';
+        }
+        if (loadingEl) loadingEl.style.display = 'none';
+        return;
+    }
+    
+    console.log('FullCalendar loaded, version:', FullCalendar.version || 'unknown');
+    console.log('Initializing FullCalendar...');
+    
+    var calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        locale: 'ru',
+        firstDay: 1,  // Понедельник - первый день недели
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay'
+        },
+        height: 'auto',
+        events: function(fetchInfo, successCallback, failureCallback) {
+            console.log('Fetching events from:', '{{ url_for("calendar.events_cached") }}');
+            
+            // Показываем индикатор загрузки и скрываем календарь
+            if (loadingEl) loadingEl.style.display = 'block';
+            if (errorEl) errorEl.style.display = 'none';
+            if (calendarEl) calendarEl.style.display = 'none';
+            
+            // Таймаут для запроса (10 секунд)
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Превышено время ожидания ответа от сервера')), 10000);
+            });
+            
+            // Формируем URL с параметрами диапазона дат для FullCalendar
+            const eventsUrl = '{{ url_for("calendar.events_cached") }}' + 
+                '?start=' + encodeURIComponent(fetchInfo.start.toISOString()) +
+                '&end=' + encodeURIComponent(fetchInfo.end.toISOString());
+            
+            console.log('Fetching events from:', eventsUrl);
+            
+            const fetchPromise = fetch(eventsUrl)
+                .then(response => {
+                    console.log('Response status:', response.status);
+                    if (!response.ok) {
+                        throw new Error('HTTP error! status: ' + response.status);
+                    }
+                    return response.json();
+                });
+            
+            Promise.race([fetchPromise, timeoutPromise])
+                .then(events => {
+                    console.log('Loaded events:', events.length);
+                    if (events.length > 0) {
+                        console.log('First event sample:', events[0]);
+                    }
+                    const calendarEvents = events.map(event => {
+                        // FullCalendar понимает ISO формат дат автоматически
+                        // Проверяем, что все необходимые поля присутствуют
+                        if (!event.start || !event.end) {
+                            console.warn('Event missing start or end date:', event);
+                            return null;
+                        }
+                        
+                        // FullCalendar автоматически обрабатывает timezone из ISO строки
+                        // Если timezone указан (+03:00), FullCalendar покажет правильное время
+                        return {
+                            id: event.id,  // ID из БД для загрузки файлов
+                            title: event.title || 'Без названия',
+                            start: event.start,  // ISO формат с timezone (+03:00), FullCalendar поймет автоматически
+                            end: event.end,      // ISO формат с timezone (+03:00), FullCalendar поймет автоматически
+                            description: event.description || '',
+                            location: event.location || '',
+                            eventId: event.event_id,
+                            // Добавляем цвет для лучшей видимости
+                            backgroundColor: '#0066CC',
+                            borderColor: '#0066CC',
+                            // Указываем, что это события с временем (не весь день)
+                            allDay: false
+                        };
+                    }).filter(event => event !== null);  // Убираем события с некорректными датами
+                    console.log('Formatted events:', calendarEvents.length);
+                    if (calendarEvents.length > 0) {
+                        console.log('Sample formatted event:', calendarEvents[0]);
+                    } else {
+                        console.warn('No events to display in calendar');
+                    }
+                    // Скрываем индикатор загрузки и показываем календарь
+                    if (loadingEl) loadingEl.style.display = 'none';
+                    if (errorEl) errorEl.style.display = 'none';
+                    if (calendarEl) calendarEl.style.display = 'block';
+                    // Вызываем successCallback с событиями
+                    successCallback(calendarEvents);
+                })
+                .catch(error => {
+                    console.error('Ошибка загрузки событий:', error);
+                    // Скрываем индикатор загрузки, показываем ошибку и календарь
+                    if (loadingEl) loadingEl.style.display = 'none';
+                    if (errorEl) {
+                        errorEl.style.display = 'block';
+                        errorEl.innerHTML = '<strong>Ошибка загрузки расписания.</strong> ' + error.message;
+                    }
+                    if (calendarEl) calendarEl.style.display = 'block';
+                    // Вызываем successCallback с пустым массивом, чтобы календарь отобразился
+                    successCallback([]);
+                });
+        },
+        eventClick: function(info) {
+            // Загрузка файлов для события
+            fetch(`/upload/files/event/${info.event.id}`)
+                .then(response => response.json())
+                .then(data => {
+                    const filesContent = document.getElementById('filesContent');
+                    filesContent.innerHTML = '<h6>' + data.event.title + '</h6>' +
+                        '<p><small>' + new Date(data.event.start_time).toLocaleString('ru-RU') + '</small></p>';
+                    
+                    if (data.files.length > 0) {
+                        filesContent.innerHTML += '<ul class="list-group mt-3">' +
+                            data.files.map(f => 
+                                `<li class="list-group-item">
+                                    <a href="/upload/files/${f.id}">${f.original_filename}</a>
+                                    <small class="text-muted d-block">Загружено: ${new Date(f.upload_date).toLocaleString('ru-RU')} пользователем ${f.uploader}</small>
+                                </li>`
+                            ).join('') + '</ul>';
+                    } else {
+                        filesContent.innerHTML += '<p class="text-muted mt-3">Файлы не загружены</p>';
+                    }
+                    new bootstrap.Modal(document.getElementById('filesModal')).show();
+                });
+        },
+        eventColor: '#0066CC',
+        eventDisplay: 'block'
+    });
+    
+    console.log('Rendering calendar...');
+    calendar.render();
+    console.log('Calendar rendered');
+    
+    // Функция для принудительного обновления расписания (для админа)
+    window.refreshSchedule = function() {
+        const refreshBtn = document.getElementById('refresh-calendar-btn');
+        const refreshSpinner = document.getElementById('refresh-spinner');
+        
+        if (refreshBtn && refreshSpinner) {
+            refreshBtn.disabled = true;
+            refreshSpinner.classList.remove('d-none');
+            
+            fetch('{{ url_for("calendar.refresh_cache") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Перезагружаем события в календаре
+                    calendar.refetchEvents();
+                    alert('Расписание успешно обновлено!');
+                } else {
+                    alert('Ошибка обновления расписания: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка обновления расписания:', error);
+                alert('Ошибка обновления расписания: ' + error.message);
+            })
+            .finally(() => {
+                refreshBtn.disabled = false;
+                refreshSpinner.classList.add('d-none');
+            });
+        }
+    };
+}
+
+// Запускаем инициализацию после загрузки DOM
+document.addEventListener('DOMContentLoaded', function() {
+    // Небольшая задержка для гарантии загрузки всех скриптов
+    setTimeout(initCalendar, 100);
+});
+
+// Также слушаем событие загрузки FullCalendar с альтернативного CDN
+window.addEventListener('fullcalendar-loaded', function() {
+    console.log('FullCalendar loaded from fallback, initializing calendar...');
+    setTimeout(initCalendar, 50);
+});
+</script>
+{% endblock %}

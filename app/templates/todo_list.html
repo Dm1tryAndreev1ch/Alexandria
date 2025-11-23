@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h3 class="mb-0">Мои задачи</h3>
+                <div>
+                    <a href="{{ url_for('todo.calendar') }}" class="btn btn-outline-light me-2">Календарь</a>
+                    <a href="{{ url_for('todo.add') }}" class="btn btn-light">Добавить задачу</a>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if tasks %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Статус</th>
+                                <th>Название</th>
+                                <th>Описание</th>
+                                <th>Срок выполнения</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for task in tasks %}
+                            <tr class="{% if task.completed %}table-secondary{% endif %}">
+                                <td>
+                                    <form method="POST" action="{{ url_for('todo.toggle', task_id=task.id) }}" class="d-inline">
+                                        <button type="submit" class="btn btn-sm {% if task.completed %}btn-success{% else %}btn-outline-secondary{% endif %}">
+                                            {% if task.completed %}✓{% else %}○{% endif %}
+                                        </button>
+                                    </form>
+                                </td>
+                                <td>
+                                    <strong>{{ task.title }}</strong>
+                                </td>
+                                <td>
+                                    {{ task.description or '-' }}
+                                </td>
+                                <td>
+                                    {% if task.due_date %}
+                                    {{ task.due_date.strftime('%d.%m.%Y %H:%M') }}
+                                    {% else %}
+                                    Не указан
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('todo.edit', task_id=task.id) }}" class="btn btn-sm btn-primary">Редактировать</a>
+                                    <form method="POST" action="{{ url_for('todo.delete', task_id=task.id) }}" class="d-inline" onsubmit="return confirm('Удалить задачу?')">
+                                        <button type="submit" class="btn btn-sm btn-danger">Удалить</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted">У вас пока нет задач. <a href="{{ url_for('todo.add') }}">Добавьте первую задачу</a></p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

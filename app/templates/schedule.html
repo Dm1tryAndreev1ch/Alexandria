@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h3 class="mb-0">Расписание занятий</h3>
+                <div>
+                    <a href="{{ url_for('main.schedule_calendar') }}" class="btn btn-outline-light me-2">Календарь</a>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if events %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Дата и время</th>
+                                <th>Название</th>
+                                <th>Описание</th>
+                                <th>Место</th>
+                                <th>Файлы</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for event in events %}
+                            <tr>
+                                <td>
+                                    {% if event.start.formatted %}
+                                    {{ event.start.formatted }}
+                                    {% elif event.start.dateTime %}
+                                    {{ event.start.dateTime[:10] }} {{ event.start.dateTime[11:16] }}
+                                    {% else %}
+                                    {{ event.start.date }}
+                                    {% endif %}
+                                </td>
+                                <td><strong>{{ event.summary or 'Без названия' }}</strong></td>
+                                <td>{{ event.description or '-' }}</td>
+                                <td>{{ event.location or '-' }}</td>
+                                <td>
+                                    <a href="#" class="btn btn-sm btn-outline-primary" onclick="loadFiles('{{ event.id }}'); return false;">
+                                        Показать файлы
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted">События не найдены. Попробуйте <a href="{{ url_for('calendar.events') }}">обновить расписание</a>.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal для файлов -->
+<div class="modal fade" id="filesModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Файлы занятия</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="filesContent">
+                Загрузка...
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function loadFiles(eventId) {
+    // Поиск события в кэше БД по event_id из Google Calendar
+    fetch('/calendar/events/cached')
+        .then(response => response.json())
+        .then(events => {
+            const event = events.find(e => e.event_id === eventId);
+            if (event) {
+                fetch(`/upload/files/event/${event.id}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        const filesContent = document.getElementById('filesContent');
+                        if (data.files.length > 0) {
+                            filesContent.innerHTML = '<ul class="list-group">' +
+                                data.files.map(f => 
+                                    `<li class="list-group-item">
+                                        <a href="/upload/files/${f.id}">${f.original_filename}</a>
+                                        <small class="text-muted d-block">Загружено: ${new Date(f.upload_date).toLocaleString('ru-RU')} пользователем ${f.uploader}</small>
+                                    </li>`
+                                ).join('') + '</ul>';
+                        } else {
+                            filesContent.innerHTML = '<p class="text-muted">Файлы не загружены</p>';
+                        }
+                        new bootstrap.Modal(document.getElementById('filesModal')).show();
+                    });
+            }
+        });
+}
+</script>
+{% endblock %}
+

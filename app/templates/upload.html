@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="mb-0">Загрузка файлов</h3>
+            </div>
+            <div class="card-body">
+                <form method="POST" enctype="multipart/form-data" id="uploadForm">
+                    <div class="mb-3">
+                        <label class="form-label">Выберите занятие из календаря *</label>
+                        <div id="calendar-container" class="mb-3" style="min-height: 400px;"></div>
+                        <input type="hidden" id="calendar_event_id" name="calendar_event_id" required>
+                        <div id="selected-event" class="alert alert-info" style="display: none;">
+                            <strong>Выбрано занятие:</strong> <span id="selected-event-title"></span>
+                            <br><small id="selected-event-time"></small>
+                            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="clearSelection()">Отменить выбор</button>
+                        </div>
+                        <div id="no-selection" class="alert alert-warning">
+                            <strong>Внимание:</strong> Выберите занятие из календаря выше, чтобы привязать файл.
+                        </div>
+                        <small class="form-text text-muted">
+                            Кликните на занятие в календаре, чтобы выбрать его для загрузки файла.
+                        </small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="file" class="form-label">Выберите файл *</label>
+                        <input type="file" class="form-control" id="file" name="file" required>
+                        <small class="form-text text-muted">
+                            Разрешённые форматы: изображения (png, jpg, jpeg, gif), документы (pdf, doc, docx, txt), архивы (zip).
+                            Максимальный размер: 16 МБ.
+                        </small>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>Загрузить файл</button>
+                    </div>
+                </form>
+                
+                <hr>
+                
+                <div class="alert alert-info">
+                    <h5>Информация:</h5>
+                    <ul class="mb-0">
+                        <li>Все загруженные файлы привязываются к занятиям из Google Calendar</li>
+                        <li>Вы можете просмотреть файлы, привязанные к конкретному занятию</li>
+                        <li>Администратор может просматривать все загруженные файлы</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let selectedEventId = null;
+let selectedEventData = null;
+
+function clearSelection() {
+    selectedEventId = null;
+    selectedEventData = null;
+    document.getElementById('calendar_event_id').value = '';
+    document.getElementById('selected-event').style.display = 'none';
+    document.getElementById('no-selection').style.display = 'block';
+    document.getElementById('submitBtn').disabled = true;
+    
+    // Сброс выделения в календаре
+    if (window.calendar) {
+        window.calendar.unselect();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var calendarEl = document.getElementById('calendar-container');
+    if (!calendarEl) return;
+    
+    var calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        locale: 'ru',
+        firstDay: 1,
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay'
+        },
+        height: 'auto',
+        events: function(fetchInfo, successCallback, failureCallback) {
+            fetch('{{ url_for("calendar.events_cached") }}')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('HTTP error! status: ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(events => {
+                    const calendarEvents = events.map(event => ({
+                        id: event.id,
+                        title: event.title,
+                        start: event.start,
+                        end: event.end,
+                        description: event.description || '',
+                        location: event.location || '',
+                        eventId: event.event_id
+                    }));
+                    successCallback(calendarEvents);
+                })
+                .catch(error => {
+                    console.error('Ошибка загрузки событий:', error);
+                    failureCallback(error);
+                });
+        },
+        eventClick: function(info) {
+            // Выбор события для загрузки файла
+            selectedEventId = info.event.id;
+            selectedEventData = {
+                id: info.event.id,
+                title: info.event.title,
+                start: info.event.start
+            };
+            
+            // Обновление формы
+            document.getElementById('calendar_event_id').value = selectedEventId;
+            document.getElementById('selected-event-title').textContent = selectedEventData.title;
+            
+            // Форматирование даты и времени
+            const startDate = new Date(selectedEventData.start);
+            const dateStr = startDate.toLocaleDateString('ru-RU', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+            const timeStr = startDate.toLocaleTimeString('ru-RU', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            document.getElementById('selected-event-time').textContent = dateStr + ' в ' + timeStr;
+            
+            // Показать выбранное событие и скрыть предупреждение
+            document.getElementById('selected-event').style.display = 'block';
+            document.getElementById('no-selection').style.display = 'none';
+            document.getElementById('submitBtn').disabled = false;
+            
+            // Визуальное выделение события
+            info.jsEvent.preventDefault();
+        },
+        eventColor: '#0066CC',
+        eventDisplay: 'block',
+        selectable: false
+    });
+    
+    calendar.render();
+    window.calendar = calendar; // Сохраняем ссылку для очистки выбора
+    
+    // Валидация формы перед отправкой
+    document.getElementById('uploadForm').addEventListener('submit', function(e) {
+        if (!selectedEventId) {
+            e.preventDefault();
+            alert('Пожалуйста, выберите занятие из календаря.');
+            return false;
+        }
+    });
+});
+</script>
+{% endblock %}

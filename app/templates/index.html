@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="mb-0">Добро пожаловать в электронный дневник группы 561401 БГУИР</h3>
+            </div>
+            <div class="card-body">
+                <p class="lead">Система управления расписанием, задачами и материалами группы.</p>
+                
+                {% if not current_user.is_authenticated %}
+                <div class="alert alert-info">
+                    <h5>Для начала работы:</h5>
+                    <ul>
+                        <li>Зарегистрируйтесь в системе</li>
+                        <li>Дождитесь подтверждения администратором</li>
+                        <li>Войдите в систему</li>
+                    </ul>
+                    <a href="{{ url_for('auth.register') }}" class="btn btn-primary me-2">Регистрация</a>
+                    <a href="{{ url_for('auth.login') }}" class="btn btn-outline-primary">Вход</a>
+                </div>
+                {% else %}
+                <div class="row mt-4">
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Расписание</h5>
+                                <p class="card-text">Просмотр расписания занятий в табличном и календарном виде.</p>
+                                <a href="{{ url_for('main.schedule') }}" class="btn btn-primary">Открыть</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Очередь ответов</h5>
+                                <p class="card-text">Очередь для ответов по предметам ОАиП и История.</p>
+                                <a href="{{ url_for('queue.index') }}" class="btn btn-primary">Открыть</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Задачи</h5>
+                                <p class="card-text">Персональные задачи и To-Do списки.</p>
+                                <a href="{{ url_for('todo.list') }}" class="btn btn-primary">Открыть</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

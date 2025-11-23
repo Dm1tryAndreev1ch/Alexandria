@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h3 class="mb-0">Календарь задач</h3>
+                <div>
+                    <a href="{{ url_for('todo.list') }}" class="btn btn-outline-light me-2">Список</a>
+                    <a href="{{ url_for('todo.add') }}" class="btn btn-light">Добавить задачу</a>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="calendar"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var calendarEl = document.getElementById('calendar');
+    var calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        locale: 'ru',
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay'
+        },
+        events: '{{ url_for("todo.api_events") }}',
+        eventClick: function(info) {
+            var taskId = info.event.id;
+            window.location.href = '/todo/edit/' + taskId;
+        },
+        eventColor: '#0066CC'
+    });
+    calendar.render();
+});
+</script>
+{% endblock %}
+
