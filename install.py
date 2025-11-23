@@ -73,10 +73,112 @@ def read_requirements():
             line = line.strip()
             # Пропускаем пустые строки и комментарии
             if line and not line.startswith('#'):
-                # Убираем условия платформы для упрощения
+                # Обработка условий платформы
                 if ';' in line:
-                    line = line.split(';')[0].strip()
-                requirements.append(line)
+                    # Разделяем на пакет и условие
+                    parts = line.split(';', 1)
+                    package = parts[0].strip()
+                    condition = parts[1].strip()
+                    
+                    # Проверяем условие платформы и версии Python
+                    system = platform.system()
+                    version = sys.version_info
+                    version_str = f"{version.major}.{version.minor}"
+                    
+                    # Парсим условие
+                    should_skip = False
+                    
+                    # Проверяем platform_system
+                    if 'platform_system' in condition:
+                        if '!=' in condition:
+                            # platform_system != "Windows" означает "не Windows"
+                            if '"Windows"' in condition:
+                                if system == 'Windows':
+                                    should_skip = True
+                            elif '"Linux"' in condition:
+                                if system == 'Linux':
+                                    should_skip = True
+                        elif '==' in condition:
+                            # platform_system == "Windows" означает "только Windows"
+                            if '"Windows"' in condition:
+                                if system != 'Windows':
+                                    should_skip = True
+                            elif '"Linux"' in condition:
+                                if system != 'Linux':
+                                    should_skip = True
+                    
+                    # Проверяем python_version
+                    if 'python_version' in condition:
+                        if '<' in condition:
+                            # python_version < "3.13"
+                            try:
+                                max_version = condition.split('"')[1]
+                                if version_str >= max_version:
+                                    should_skip = True
+                            except:
+                                pass
+                        elif '>' in condition:
+                            # python_version > "3.8"
+                            try:
+                                min_version = condition.split('"')[1]
+                                if version_str <= min_version:
+                                    should_skip = True
+                            except:
+                                pass
+                    
+                    # Если условие содержит "and", оба должны быть true
+                    if ' and ' in condition:
+                        # Для "and" нужно проверить, что оба условия выполняются
+                        # Условие: platform_system != "Windows" and python_version < "3.13"
+                        # Значит: НЕ Windows И Python < 3.13
+                        parts = condition.split(' and ')
+                        platform_ok = True
+                        version_ok = True
+                        
+                        for part in parts:
+                            part = part.strip()
+                            if 'platform_system' in part:
+                                if '!=' in part:
+                                    if '"Windows"' in part:
+                                        # platform_system != "Windows" -> должно быть НЕ Windows
+                                        platform_ok = (system != 'Windows')
+                                    elif '"Linux"' in part:
+                                        # platform_system != "Linux" -> должно быть НЕ Linux
+                                        platform_ok = (system != 'Linux')
+                                elif '==' in part:
+                                    if '"Windows"' in part:
+                                        # platform_system == "Windows" -> должно быть Windows
+                                        platform_ok = (system == 'Windows')
+                                    elif '"Linux"' in part:
+                                        # platform_system == "Linux" -> должно быть Linux
+                                        platform_ok = (system == 'Linux')
+                            elif 'python_version' in part:
+                                if '<' in part:
+                                    try:
+                                        max_v = part.split('"')[1]
+                                        # python_version < "3.13" -> должно быть < 3.13
+                                        version_ok = (version_str < max_v)
+                                    except:
+                                        version_ok = True
+                                elif '>' in part:
+                                    try:
+                                        min_v = part.split('"')[1]
+                                        # python_version > "3.8" -> должно быть > 3.8
+                                        version_ok = (version_str > min_v)
+                                    except:
+                                        version_ok = True
+                        
+                        # Для "and" оба условия должны быть true
+                        if not (platform_ok and version_ok):
+                            should_skip = True
+                    
+                    if should_skip:
+                        print(f"   Пропуск {package} (условие не выполнено: {condition})")
+                        continue
+                    
+                    requirements.append(package)
+                else:
+                    requirements.append(line)
     
     return requirements
 
@@ -85,7 +187,7 @@ def install_package(package):
     try:
         print(f"   Установка: {package}...", end=' ', flush=True)
         result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", package],
+            [sys.executable, "-m", "pip", "install", package, "--no-cache-dir"],
             capture_output=True,
             text=True,
             check=True
@@ -94,36 +196,74 @@ def install_package(package):
         return True
     except subprocess.CalledProcessError as e:
         print(f"❌")
-        print(f"      Ошибка: {e.stderr}")
+        error_msg = e.stderr if e.stderr else e.stdout
+        # Показываем только последние строки ошибки для читаемости
+        error_lines = error_msg.strip().split('\n')
+        if len(error_lines) > 5:
+            print(f"      Ошибка (последние строки):")
+            for line in error_lines[-5:]:
+                print(f"      {line}")
+        else:
+            print(f"      Ошибка: {error_msg}")
         return False
 
 def install_requirements(requirements):
     """Установка всех зависимостей"""
     print(f"\n📦 Установка {len(requirements)} зависимостей...\n")
     
+    # Пакеты, которые не критичны для работы приложения (если используется SQLite)
+    # psycopg2-binary нужен только для PostgreSQL, для SQLite не требуется
+    optional_packages = ['psycopg2-binary']
+    
     failed_packages = []
+    failed_optional = []
     successful_packages = []
     
     for i, package in enumerate(requirements, 1):
         print(f"[{i}/{len(requirements)}] ", end='')
+        package_name = package.split('==')[0].split('>=')[0].split('<=')[0].split('>')[0].split('<')[0]
+        is_optional = any(opt in package_name for opt in optional_packages)
+        
         if install_package(package):
             successful_packages.append(package)
         else:
-            failed_packages.append(package)
+            if is_optional:
+                failed_optional.append(package)
+                print(f"      ⚠️  Пакет {package_name} опционален (нужен только для PostgreSQL)")
+            else:
+                failed_packages.append(package)
     
     print("\n" + "=" * 60)
     print("Результаты установки:")
     print("=" * 60)
     print(f"✅ Успешно установлено: {len(successful_packages)}")
-    print(f"❌ Ошибок: {len(failed_packages)}")
+    if failed_optional:
+        print(f"⚠️  Опциональные пакеты (не критично): {len(failed_optional)}")
+    if failed_packages:
+        print(f"❌ Критичных ошибок: {len(failed_packages)}")
+    
+    if failed_optional:
+        print("\n⚠️  Не удалось установить опциональные пакеты:")
+        for package in failed_optional:
+            package_name = package.split('==')[0].split('>=')[0].split('<=')[0].split('>')[0].split('<')[0]
+            print(f"   - {package_name}")
+            if 'psycopg2' in package_name:
+                print("     (Требуется только для PostgreSQL. Для SQLite не нужен.)")
+        print("\nЕсли используете PostgreSQL, установите вручную:")
+        print(f"   pip install {' '.join(failed_optional)}")
     
     if failed_packages:
-        print("\n⚠️  Не удалось установить следующие пакеты:")
+        print("\n❌ Не удалось установить критичные пакеты:")
         for package in failed_packages:
             print(f"   - {package}")
         print("\nПопробуйте установить их вручную:")
         print(f"   pip install {' '.join(failed_packages)}")
         return False
+    
+    if failed_optional:
+        print("\n✅ Все критичные пакеты установлены успешно!")
+        print("   Опциональные пакеты можно установить позже при необходимости.")
+        return True
     
     return True
 

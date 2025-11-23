@@ -116,7 +116,11 @@ DATABASE_URL=postgresql://username:password@localhost:5432/bsuir_diary
 
 **Для продакшена (MySQL):**
 ```
-DATABASE_URL=mysql://username:password@localhost:3306/bsuir_diary
+DATABASE_URL=mysql+pymysql://username:password@localhost:3306/bsuir_diary
+```
+или с mysql-connector-python:
+```
+DATABASE_URL=mysql+mysqlconnector://username:password@localhost:3306/bsuir_diary
 ```
 
 **Создание базы данных PostgreSQL:**
@@ -151,6 +155,24 @@ FLUSH PRIVILEGES;
 # Выйдите из MySQL
 EXIT;
 ```
+
+**Установка MySQL драйвера для Python:**
+
+Для использования MySQL необходимо установить один из драйверов:
+
+**Вариант 1: PyMySQL (рекомендуется)**
+```bash
+pip install PyMySQL
+```
+В `.env` используйте: `DATABASE_URL=mysql+pymysql://user:password@localhost:3306/bsuir_diary`
+
+**Вариант 2: mysql-connector-python**
+```bash
+pip install mysql-connector-python
+```
+В `.env` используйте: `DATABASE_URL=mysql+mysqlconnector://user:password@localhost:3306/bsuir_diary`
+
+**Примечание:** Если используете MySQL, раскомментируйте соответствующий драйвер в `requirements.txt` или установите его вручную.
 
 #### 5.3. Google Calendar
 

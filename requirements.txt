@@ -5,7 +5,13 @@ Flask-Migrate==4.0.5
 Flask-WTF==1.2.1
 WTForms==3.1.1
 Werkzeug==3.0.1
-psycopg2-binary==2.9.9; platform_system != "Windows" or python_version < "3.13"
+# База данных - выберите один из вариантов:
+# Для PostgreSQL:
+psycopg2-binary==2.9.9
+# Для MySQL (раскомментируйте нужный драйвер):
+# PyMySQL==1.1.0
+# mysql-connector-python==8.2.0
+
 python-dotenv==1.0.0
 google-auth==2.25.2
 google-auth-oauthlib==1.2.0
