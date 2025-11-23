@@ -1,26 +1,10 @@
+import os
 import pytest
 from app import create_app, db
 from app.models import User
 
-
-@pytest.fixture
-def app():
-    """Создание тестового приложения"""
-    app = create_app('development')
-    app.config['TESTING'] = True
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
-    app.config['WTF_CSRF_ENABLED'] = False
-    
-    with app.app_context():
-        db.create_all()
-        yield app
-        db.drop_all()
-
-
-@pytest.fixture
-def client(app):
-    """Тестовый клиент"""
-    return app.test_client()
+# Устанавливаем SQLite для тестов
+os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
 
 
 @pytest.fixture

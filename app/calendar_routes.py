@@ -1,12 +1,6 @@
-import os
 from datetime import datetime, timedelta, timezone
-from flask import Blueprint, redirect, url_for, request, session, jsonify, render_template, current_app, flash
+from flask import Blueprint, request, jsonify, render_template, current_app
 from flask_login import login_required, current_user
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 from app import db
 from app.models import CalendarEvent
 
@@ -15,92 +9,6 @@ LOCAL_TIMEZONE_OFFSET = timedelta(hours=3)  # UTC+3 для Минска
 
 bp = Blueprint('calendar', __name__)
 
-# Scopes для Google Calendar API
-SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
-
-
-def get_credentials():
-    """Получение credentials из сессии"""
-    if 'credentials' not in session:
-        return None
-    
-    creds_dict = session['credentials']
-    creds = Credentials.from_authorized_user_info(creds_dict, SCOPES)
-    
-    # Обновление токена, если истёк
-    if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        session['credentials'] = creds.to_json()
-    
-    return creds
-
-
-@bp.route('/auth')
-@login_required
-def auth():
-    """Начало OAuth flow для Google Calendar"""
-    client_id = current_app.config.get('GOOGLE_CLIENT_ID')
-    client_secret = current_app.config.get('GOOGLE_CLIENT_SECRET')
-    
-    if not client_id or not client_secret:
-        flash('Google Calendar не настроен. Обратитесь к администратору.', 'danger')
-        return redirect(url_for('main.index'))
-    
-    flow = Flow.from_client_config(
-        {
-            "web": {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [request.url_root.rstrip('/') + url_for('calendar.callback')]
-            }
-        },
-        scopes=SCOPES
-    )
-    flow.redirect_uri = url_for('calendar.callback', _external=True)
-    
-    authorization_url, state = flow.authorization_url(
-        access_type='offline',
-        include_granted_scopes='true'
-    )
-    
-    session['state'] = state
-    return redirect(authorization_url)
-
-
-@bp.route('/callback')
-@login_required
-def callback():
-    """Callback для OAuth"""
-    state = session.get('state')
-    
-    client_id = current_app.config.get('GOOGLE_CLIENT_ID')
-    client_secret = current_app.config.get('GOOGLE_CLIENT_SECRET')
-    
-    flow = Flow.from_client_config(
-        {
-            "web": {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [request.url_root.rstrip('/') + url_for('calendar.callback')]
-            }
-        },
-        scopes=SCOPES,
-        state=state
-    )
-    flow.redirect_uri = url_for('calendar.callback', _external=True)
-    
-    authorization_response = request.url
-    flow.fetch_token(authorization_response=authorization_response)
-    
-    credentials = flow.credentials
-    session['credentials'] = credentials.to_json()
-    
-    return redirect(url_for('calendar.events'))
-
 
 def fetch_events_from_google():
     """Получение событий из Google Calendar без OAuth (публичный доступ)"""
@@ -108,15 +16,6 @@ def fetch_events_from_google():
         calendar_id = current_app.config.get('GOOGLE_CALENDAR_ID')
         if not calendar_id:
             return []
-        
-        # Используем публичный доступ к календарю через API
-        # Для публичного календаря можно использовать API ключ или просто публичный URL
-        # Преобразуем calendar ID в формат для публичного доступа
-        public_calendar_id = calendar_id.replace('@group.calendar.google.com', '')
-        
-        # Используем публичный iCal feed или API с API ключом
-        # Для простоты используем кэшированные события из БД
-        # Обновление будет происходить через фоновую задачу
         
         # Получение событий из кэша БД
         # События в БД хранятся в локальном времени (UTC+3)
@@ -167,6 +66,17 @@ def update_calendar_cache():
             
             with urllib.request.urlopen(req, timeout=15) as response:
                 cal_data = response.read()
+                # Убеждаемся, что данные правильно декодированы перед парсингом
+                # iCal формат обычно использует UTF-8, но может быть и другой кодировкой
+                try:
+                    # Пробуем декодировать как UTF-8 для проверки
+                    cal_data_str = cal_data.decode('utf-8')
+                    # Если успешно, кодируем обратно в bytes для библиотеки
+                    cal_data = cal_data_str.encode('utf-8')
+                except UnicodeDecodeError:
+                    # Если UTF-8 не работает, оставляем как есть
+                    pass
+                
                 cal = icalendar.Calendar.from_ical(cal_data)
                 
                 # Используем UTC для получения событий из iCal
@@ -177,15 +87,142 @@ def update_calendar_cache():
                 now_local = now_utc + LOCAL_TIMEZONE_OFFSET
                 future_local = future_utc + LOCAL_TIMEZONE_OFFSET
                 
+                def safe_decode(value, default='', params=None):
+                    """Безопасное декодирование значения из iCal компонента с поддержкой UTF-8"""
+                    if value is None:
+                        return default
+                    
+                    # Проверяем параметр CHARSET из iCal, если есть
+                    charset = 'utf-8'  # По умолчанию UTF-8
+                    if params and 'CHARSET' in params:
+                        charset = params['CHARSET'].lower()
+                    
+                    # Пробуем разные методы получения значения
+                    # 1. Если это bytes, декодируем напрямую
+                    if isinstance(value, bytes):
+                        try:
+                            return value.decode(charset)
+                        except (UnicodeDecodeError, LookupError):
+                            try:
+                                return value.decode('utf-8')
+                            except UnicodeDecodeError:
+                                try:
+                                    return value.decode('latin-1')
+                                except:
+                                    return value.decode('utf-8', errors='replace')
+                    
+                    # 2. Если это vText объект, используем to_ical()
+                    if hasattr(value, 'to_ical'):
+                        try:
+                            ical_bytes = value.to_ical()
+                            if isinstance(ical_bytes, bytes):
+                                # Пробуем декодировать с указанным charset или UTF-8
+                                try:
+                                    decoded = ical_bytes.decode(charset)
+                                    return decoded
+                                except (UnicodeDecodeError, LookupError):
+                                    # Если указанный charset не работает, пробуем UTF-8
+                                    try:
+                                        decoded = ical_bytes.decode('utf-8')
+                                        return decoded
+                                    except UnicodeDecodeError:
+                                        # Если UTF-8 не работает, пробуем latin-1 (часто используется в старых iCal)
+                                        try:
+                                            decoded = ical_bytes.decode('latin-1')
+                                            return decoded
+                                        except:
+                                            # В крайнем случае используем replace для замены нечитаемых символов
+                                            decoded = ical_bytes.decode('utf-8', errors='replace')
+                                            return decoded
+                            else:
+                                # Это уже строка
+                                return str(ical_bytes)
+                        except (AttributeError, TypeError):
+                            pass
+                    
+                    # 3. Если это уже строка, но может содержать неправильную кодировку
+                    # Пробуем перекодировать через latin-1 -> utf-8 (частая проблема)
+                    if isinstance(value, str):
+                        # Проверяем, не является ли это неправильно декодированной UTF-8 строкой
+                        # Это происходит, когда UTF-8 байты были декодированы как latin-1 или cp1252
+                        try:
+                            # Если строка содержит символы, которые выглядят как неправильно декодированные
+                            # (например, последовательности типа "????" или странные символы)
+                            if any(ord(c) > 127 for c in value):
+                                # Пробуем исправить через latin-1 -> utf-8
+                                # Это работает, если UTF-8 был декодирован как latin-1
+                                try:
+                                    fixed = value.encode('latin-1').decode('utf-8')
+                                    # Проверяем, что исправление дало результат (нет замененных символов)
+                                    if '\ufffd' not in fixed and '?' not in fixed[:10]:
+                                        return fixed
+                                except (UnicodeEncodeError, UnicodeDecodeError):
+                                    pass
+                                
+                                # Пробуем исправить через cp1252 -> utf-8 (Windows кодировка)
+                                try:
+                                    fixed = value.encode('cp1252').decode('utf-8')
+                                    if '\ufffd' not in fixed and '?' not in fixed[:10]:
+                                        return fixed
+                                except (UnicodeEncodeError, UnicodeDecodeError):
+                                    pass
+                                
+                                # Пробуем исправить через cp1251 -> utf-8 (кириллица в Windows)
+                                try:
+                                    fixed = value.encode('cp1251').decode('utf-8')
+                                    if '\ufffd' not in fixed and '?' not in fixed[:10]:
+                                        return fixed
+                                except (UnicodeEncodeError, UnicodeDecodeError):
+                                    pass
+                        except:
+                            pass
+                        return value
+                    
+                    # 5. В крайнем случае используем str()
+                    try:
+                        return str(value)
+                    except:
+                        return default
+                
                 for component in cal.walk():
                     if component.name == "VEVENT":
-                        event_id = str(component.get('UID', ''))
+                        # Получаем параметры для правильного декодирования
+                        # В icalendar параметры доступны через component.params, но структура может быть разной
+                        uid_value = component.get('UID')
+                        uid_params = {}
+                        if hasattr(component, 'params') and 'UID' in component.params:
+                            uid_params_list = component.params['UID']
+                            if isinstance(uid_params_list, list) and len(uid_params_list) > 0:
+                                uid_params = uid_params_list[0] if isinstance(uid_params_list[0], dict) else {}
+                        
+                        event_id = safe_decode(uid_value, '', uid_params)
                         if not event_id:
                             continue
                         
-                        summary = str(component.get('SUMMARY', 'Без названия'))
-                        description = str(component.get('DESCRIPTION', ''))
-                        location = str(component.get('LOCATION', ''))
+                        # Получаем значения с параметрами для правильного декодирования
+                        summary_value = component.get('SUMMARY', 'Без названия')
+                        summary_params = {}
+                        if hasattr(component, 'params') and 'SUMMARY' in component.params:
+                            summary_params_list = component.params['SUMMARY']
+                            if isinstance(summary_params_list, list) and len(summary_params_list) > 0:
+                                summary_params = summary_params_list[0] if isinstance(summary_params_list[0], dict) else {}
+                        summary = safe_decode(summary_value, 'Без названия', summary_params)
+                        
+                        description_value = component.get('DESCRIPTION', '')
+                        description_params = {}
+                        if hasattr(component, 'params') and 'DESCRIPTION' in component.params:
+                            description_params_list = component.params['DESCRIPTION']
+                            if isinstance(description_params_list, list) and len(description_params_list) > 0:
+                                description_params = description_params_list[0] if isinstance(description_params_list[0], dict) else {}
+                        description = safe_decode(description_value, '', description_params)
+                        
+                        location_value = component.get('LOCATION', '')
+                        location_params = {}
+                        if hasattr(component, 'params') and 'LOCATION' in component.params:
+                            location_params_list = component.params['LOCATION']
+                            if isinstance(location_params_list, list) and len(location_params_list) > 0:
+                                location_params = location_params_list[0] if isinstance(location_params_list[0], dict) else {}
+                        location = safe_decode(location_value, '', location_params)
                         
                         dtstart = component.get('DTSTART')
                         dtend = component.get('DTEND')
@@ -254,8 +291,8 @@ def update_calendar_cache():
                 
                 db.session.commit()
                 event_count = CalendarEvent.query.filter(
-                    CalendarEvent.start_time >= now - timedelta(days=1),
-                    CalendarEvent.start_time <= future
+                    CalendarEvent.start_time >= now_local - timedelta(days=1),
+                    CalendarEvent.start_time <= future_local
                 ).count()
                 print(f"Calendar cache updated successfully. Calendar ID: {calendar_id}, Events cached: {event_count}")
                 
@@ -408,6 +445,16 @@ def refresh_cache():
         return jsonify({'success': False, 'error': 'Доступ запрещен. Требуются права администратора.'}), 403
     
     try:
+        # Получаем параметр force_refresh из запроса
+        force_refresh = request.json.get('force_refresh', False) if request.is_json else False
+        
+        if force_refresh:
+            # Удаляем все существующие события перед обновлением
+            # Это исправит проблемы с кодировкой в уже сохраненных данных
+            deleted_count = CalendarEvent.query.delete()
+            db.session.commit()
+            current_app.logger.info(f'Deleted {deleted_count} calendar events before refresh')
+        
         update_calendar_cache()
         return jsonify({'success': True, 'message': 'Календарь успешно обновлен'})
     except Exception as e:

@@ -1,28 +1,12 @@
 """Тесты для очереди с датами для истории"""
+import os
 import pytest
 from datetime import datetime, date, timedelta
 from app import create_app, db
 from app.models import User, QueueEntry, CalendarEvent
 
-
-@pytest.fixture
-def app():
-    """Создание тестового приложения"""
-    app = create_app('development')
-    app.config['TESTING'] = True
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
-    app.config['WTF_CSRF_ENABLED'] = False
-    
-    with app.app_context():
-        db.create_all()
-        yield app
-        db.drop_all()
-
-
-@pytest.fixture
-def client(app):
-    """Тестовый клиент"""
-    return app.test_client()
+# Устанавливаем SQLite для тестов
+os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
 
 
 @pytest.fixture
@@ -47,7 +31,7 @@ def history_event(app):
         event_date = datetime.utcnow() + timedelta(days=7)
         event = CalendarEvent(
             event_id='history_event_123',
-            title='История Беларуси',
+            title='История Беларуси (ПЗ)',  # Добавляем (ПЗ) для распознавания как истории
             start_time=event_date,
             end_time=event_date + timedelta(hours=2),
             description='Занятие по истории',
@@ -167,13 +151,13 @@ def test_history_queue_multiple_dates(client, user, app):
         
         event1 = CalendarEvent(
             event_id='history_event_1',
-            title='История Беларуси',
+            title='История Беларуси (ПЗ)',  # Добавляем (ПЗ) для распознавания
             start_time=date1,
             end_time=date1 + timedelta(hours=2)
         )
         event2 = CalendarEvent(
             event_id='history_event_2',
-            title='История Беларуси',
+            title='История Беларуси (ПЗ)',  # Добавляем (ПЗ) для распознавания
             start_time=date2,
             end_time=date2 + timedelta(hours=2)
         )

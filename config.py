@@ -1,7 +1,17 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# Загружаем .env файл с обработкой ошибок кодировки
+# BOM (Byte Order Mark) символы будут автоматически обработаны
+try:
+    load_dotenv(encoding='utf-8-sig')  # utf-8-sig автоматически удаляет BOM
+except Exception:
+    # Если utf-8-sig не поддерживается, пробуем обычный utf-8
+    try:
+        load_dotenv(encoding='utf-8')
+    except Exception:
+        # В крайнем случае пробуем без указания кодировки
+        load_dotenv()
 
 
 class Config:

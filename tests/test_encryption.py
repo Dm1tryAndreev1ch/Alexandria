@@ -1,7 +1,12 @@
 """Тесты для модуля шифрования"""
+import os
 import pytest
 from app import create_app
 from app.encryption import encrypt_data, decrypt_data
+from cryptography.fernet import Fernet
+
+# Устанавливаем SQLite для тестов
+os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
 
 
 @pytest.fixture
@@ -10,6 +15,9 @@ def app():
     app = create_app('development')
     app.config['TESTING'] = True
     app.config['SECRET_KEY'] = 'test-secret-key-for-encryption'
+    # Генерируем правильный ключ для Fernet (32 байта в base64)
+    test_key = Fernet.generate_key()
+    app.config['ENCRYPTION_KEY'] = test_key.decode('utf-8')
     
     with app.app_context():
         yield app

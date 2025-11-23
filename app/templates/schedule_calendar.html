@@ -233,7 +233,10 @@ function initCalendar() {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                }
+                },
+                body: JSON.stringify({
+                    force_refresh: true  // Принудительное обновление для исправления кодировки
+                })
             })
             .then(response => response.json())
             .then(data => {

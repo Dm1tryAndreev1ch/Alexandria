@@ -636,18 +636,43 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
 
-def init_bot():
+def init_bot(token=None):
     """Инициализация бота (без запуска polling)"""
-    # Загружаем переменные окружения
-    from dotenv import load_dotenv
-    load_dotenv()
+    # Если токен передан напрямую, используем его
+    if token:
+        bot_token = token
+    else:
+        # Пытаемся получить токен из переменных окружения
+        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+        
+        # Если токена нет в окружении, пытаемся загрузить из .env
+        if not bot_token:
+            try:
+                from dotenv import load_dotenv
+                # Пытаемся загрузить .env с обработкой BOM
+                try:
+                    load_dotenv(encoding='utf-8-sig')
+                except (UnicodeEncodeError, UnicodeDecodeError):
+                    # Если ошибка кодировки, пробуем без загрузки .env
+                    # и используем только переменные окружения
+                    pass
+                except Exception:
+                    # Другие ошибки - пробуем обычный utf-8
+                    try:
+                        load_dotenv(encoding='utf-8')
+                    except Exception:
+                        load_dotenv()
+                
+                bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+            except Exception as e:
+                print(f"Warning: Could not load .env file: {e}")
+                bot_token = None
     
-    # Получаем токен из переменных окружения
-    token = os.environ.get('TELEGRAM_BOT_TOKEN')
-    
-    if not token:
+    if not bot_token:
         print("Error: TELEGRAM_BOT_TOKEN not set in environment variables")
         return None
+    
+    token = bot_token
     
     try:
         global bot_application

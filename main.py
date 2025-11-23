@@ -53,7 +53,8 @@ def start_telegram_bot():
         from telegram_bot.bot import init_bot, run_bot_polling_sync
         
         print("Initializing Telegram bot...")
-        bot_app = init_bot()
+        # Передаем токен напрямую, чтобы избежать проблем с загрузкой .env
+        bot_app = init_bot(token=token)
         
         if not bot_app:
             print("Failed to initialize Telegram bot.")
@@ -100,8 +101,29 @@ def before_request():
     """Выполняется перед каждым запросом"""
     # Инициализация админа при первом запросе (один раз)
     if not hasattr(app, '_admin_setup_done'):
-        setup_admin()
+        try:
+            setup_admin()
+        except Exception as e:
+            # Если таблицы еще не созданы, пропускаем инициализацию админа
+            # Пользователь должен сначала применить миграции через: flask db upgrade
+            error_str = str(e)
+            if 'doesn\'t exist' in error_str or 'Table' in error_str or 'ProgrammingError' in error_str:
+                # Это ошибка отсутствия таблиц - это нормально, миграции еще не применены
+                pass
+            else:
+                # Другая ошибка - логируем
+                import sys
+                print(f"Warning: Could not setup admin: {e}", file=sys.stderr)
         app._admin_setup_done = True
+    
+    # Запуск Telegram бота при первом запросе (один раз)
+    if not hasattr(app, '_telegram_bot_started'):
+        try:
+            start_telegram_bot()
+        except Exception as e:
+            import sys
+            print(f"Warning: Could not start Telegram bot: {e}", file=sys.stderr)
+        app._telegram_bot_started = True
     
     # Запуск фоновой задачи обновления календаря (один раз)
     if not hasattr(app, '_calendar_update_started'):
@@ -109,18 +131,52 @@ def before_request():
         calendar_thread.start()
         
         # Первоначальное обновление календаря
-        with app.app_context():
-            from app.calendar_routes import update_calendar_cache
-            update_calendar_cache()
+        try:
+            with app.app_context():
+                from app.calendar_routes import update_calendar_cache
+                update_calendar_cache()
+        except Exception as e:
+            # Если таблицы еще не созданы, пропускаем обновление календаря
+            error_str = str(e)
+            if 'doesn\'t exist' in error_str or 'Table' in error_str or 'ProgrammingError' in error_str:
+                # Это ошибка отсутствия таблиц - это нормально
+                pass
+            else:
+                import sys
+                print(f"Warning: Could not update calendar: {e}", file=sys.stderr)
         
         app._calendar_update_started = True
 
 
-# WSGI entry point
+# WSGI entry point для production серверов (Passenger, Gunicorn и т.д.)
+# Passenger ищет переменную 'application'
 application = app
+
+# Совместимость со старым passenger_wsgi.py
+# Старый код: wsgi = load_source('wsgi', 'main.py'); application = wsgi.passenger_wsgi.py
+# Когда main.py загружается как модуль 'wsgi', все его переменные становятся атрибутами модуля
+# Поэтому нужно создать объект passenger_wsgi с атрибутом py
+class PyModule:
+    """Обертка для совместимости со старым passenger_wsgi.py"""
+    def __init__(self):
+        self.py = application
+
+# Создаем объект passenger_wsgi для доступа через wsgi.passenger_wsgi.py
+# Когда main.py загружается как модуль 'wsgi', этот объект будет доступен как wsgi.passenger_wsgi
+passenger_wsgi = PyModule()
+
+# Также создаем объект wsgi для совместимости с другими вариантами
+class WsgiModule:
+    """Обертка для совместимости со старым passenger_wsgi.py"""
+    def __init__(self):
+        self.wsgi = PyModule()
+        self.passenger_wsgi = PyModule()
+
+wsgi = WsgiModule()
 
 
 if __name__ == '__main__':
+    # Запуск только при прямом выполнении (не через WSGI)
     with app.app_context():
         db.create_all()
         setup_admin()
